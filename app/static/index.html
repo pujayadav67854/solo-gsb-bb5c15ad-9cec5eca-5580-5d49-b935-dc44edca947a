@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>徒步轨迹分享 · 敏感地点遮蔽</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>徒步轨迹分享</h1>
+    <p>上传含时间的 GPX → 自动统计分段配速、海拔剖面并检测单点漂移跳点 → 在预览图上点击敏感地点并设定遮蔽半径 → 导出按遮蔽圆裁切、互不连接的 GPX 分段</p>
+  </header>
+  <main>
+    <section class="panel">
+      <h2>1. 上传 GPX</h2>
+      <input type="file" id="file" accept=".gpx,application/gpx+xml">
+      <div id="track-info" class="info muted">尚未上传轨迹</div>
+
+      <h2>2. 设置遮蔽</h2>
+      <p class="hint">在右侧预览图上<strong>点击</strong>即可在该位置添加遮蔽圆。</p>
+      <label class="row">新圆半径（米）
+        <input type="number" id="radius" value="200" min="1" max="100000" step="10">
+      </label>
+      <ul id="circle-list"></ul>
+      <button id="clear-circles" class="secondary">清除全部遮蔽圆</button>
+
+      <h2>3. 裁切结果</h2>
+      <div id="stats" class="info muted">设置遮蔽后自动计算</div>
+      <button id="download" disabled>下载遮蔽后的 GPX</button>
+    </section>
+
+    <section class="preview">
+      <canvas id="map"></canvas>
+      <div class="legend">
+        <span><i class="sw original"></i>原始轨迹</span>
+        <span><i class="sw visible"></i>可见轨迹</span>
+        <span><i class="sw hidden"></i>被隐藏段</span>
+        <span><i class="sw circle"></i>遮蔽圆</span>
+        <span><i class="sw drift"></i>漂移跳点</span>
+      </div>
+    </section>
+  </main>
+
+  <section class="pace">
+    <h2>4. 分段配速</h2>
+    <label class="row">每段里程（公里）
+      <input type="number" id="split-km" value="1" min="0.1" max="10" step="0.1">
+      <span class="hint">范围 0.1～10，默认 1；按原始 trkseg 分别累计球面距离，末尾不足一段也列出</span>
+    </label>
+    <div id="pace" class="info muted">上传含时间的 GPX 后自动计算</div>
+  </section>
+
+  <section class="elevation">
+    <h2>5. 海拔剖面</h2>
+    <div id="elevation-summary" class="info muted">上传含海拔的 GPX 后自动计算</div>
+    <canvas id="profile"></canvas>
+    <p class="hint">按里程每 20 米重采样，三点中位数抑制尖峰，5 米反向变化确认峰谷；缺失海拔处断开，不跨分段或缺口插值</p>
+  </section>
+
+  <section class="drift">
+    <h2>6. 单点漂移修复</h2>
+    <div id="drift" class="info muted">上传 GPX 后自动检测跳点</div>
+    <button id="download-fixed" disabled>下载修复后的 GPX</button>
+    <p class="hint">判定：同一 trkseg 内某中间点进出两段速度均 &gt; 12 m/s、绕过该点的首尾速度 ≤ 12 m/s、
+      且该点到首尾线段的水平距离 &gt; 40 m；逐轮只删最早命中的一个跳点并重算，保留每段首尾点；
+      命中点以橙色标在预览图上。遮蔽与配速统计仍使用原始轨迹，不受修复影响</p>
+  </section>
+
+  <div id="message" hidden></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

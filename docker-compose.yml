@@ -1,0 +1,7 @@
+services:
+  web:
+    build: .
+    ports:
+      # 左侧为宿主机端口，如需修改对外端口请改这里（如 "8080:8000"）
+      - "8000:8000"
+    restart: unless-stopped
