@@ -145,6 +145,19 @@ button.secondary:hover { background: #fff5f5; }
   background: #fb8c00;
 }
 #download-fixed:disabled { background: #b0bec5; }
+
+.stay { padding: 0 24px 24px; }
+.stay h2 {
+  font-size: 14px;
+  margin: 0 0 8px;
+  padding-top: 14px;
+  border-top: 1px solid #f0f0f0;
+}
+.stay .hint { margin: 8px 0 0; }
+.stay .info b { color: #6a4c93; }
+.stay-table { margin-top: 8px; }
+.stay-table th:nth-child(3), .stay-table td:nth-child(3) { text-align: left; }
+.stay-table td { line-height: 1.5; white-space: normal; }
 #profile {
   width: 100%;
   height: 220px;
@@ -217,6 +230,13 @@ button.secondary:hover { background: #fff5f5; }
   width: 10px;
   border-radius: 50%;
   background: #fb8c00;
+}
+.sw.stay {
+  height: 10px;
+  width: 10px;
+  border-radius: 50%;
+  border: 1px dashed #6a4c93;
+  background: rgba(106, 76, 147, 0.12);
 }
 
 #message {

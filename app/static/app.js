@@ -11,6 +11,7 @@ const state = {
   masked: null,   // /api/mask 返回结果
   elevation: null, // /api/elevation 返回结果
   drift: null,    // /api/drift 返回结果
+  stay: null,     // /api/stay 返回结果
   transform: null,
 };
 
@@ -137,6 +138,31 @@ function draw() {
   if (state.drift) {
     for (const h of state.drift.hits) drawMarker(h, "#fb8c00", "漂", dpr);
   }
+
+  // 停留点（紫色：30 米范围环 + "停"标记，按位置与起止时间画停留区间）
+  if (state.stay) {
+    const stayRadius = (state.stay.thresholds && state.stay.thresholds.radius_m) || 30;
+    for (const s of state.stays) drawStay(s, stayRadius, dpr);
+  }
+}
+
+function drawStay(s, radius, dpr) {
+  const t = state.transform;
+  const [x, y] = toPx(s.lat, s.lon);
+  const ry = (radius / METERS_PER_DEG_LAT) * t.scale;
+  const rx =
+    (radius / (METERS_PER_DEG_LAT * Math.cos((s.lat * Math.PI) / 180))) *
+    t.cosLat * t.scale;
+  ctx.beginPath();
+  ctx.ellipse(x, y, Math.max(rx, 2), Math.max(ry, 2), 0, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(106, 76, 147, 0.12)";
+  ctx.fill();
+  ctx.strokeStyle = "#6a4c93";
+  ctx.lineWidth = 1.5 * dpr;
+  ctx.setLineDash([5 * dpr, 4 * dpr]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  drawMarker({ lat: s.lat, lon: s.lon }, "#6a4c93", "停", dpr);
 }
 
 function drawMarker(p, color, label, dpr) {
@@ -192,6 +218,7 @@ async function uploadFile(file) {
   state.masked = null;
   state.elevation = null;
   state.drift = null;
+  state.stay = null;
   document.getElementById("download-fixed").disabled = true;
   computeTransform();
   renderTrackInfo(data.stats);
@@ -200,6 +227,7 @@ async function uploadFile(file) {
   await refreshPace();
   await refreshElevation();
   await refreshDrift();
+  await refreshStay();
 }
 
 let paceTimer = null;
@@ -294,6 +322,27 @@ async function refreshDrift() {
   draw();
 }
 
+async function refreshStay() {
+  if (!state.trackId) return;
+  const el = document.getElementById("stay");
+  try {
+    const res = await fetch("/api/stay", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ track_id: state.trackId }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(errDetail(data, "停留识别失败"));
+    state.stay = data;
+    renderStay(data);
+  } catch (err) {
+    state.stay = null;
+    el.classList.remove("muted");
+    el.innerHTML = `<div class="pace-error">无法识别停留：${escapeHtml(err.message)}</div>`;
+  }
+  draw();
+}
+
 async function downloadFixedGpx() {
   if (!state.trackId) return;
   try {
@@ -350,6 +399,10 @@ function fmtPace(paceMinPerKm) {
 
 function fmtTime(iso) {
   return new Date(iso).toLocaleTimeString("zh-CN", { hour12: false });
+}
+
+function fmtDateTime(iso) {
+  return new Date(iso).toLocaleString("zh-CN", { hour12: false });
 }
 
 function errDetail(data, fallback) {
@@ -546,6 +599,37 @@ function renderDrift(data) {
   }
   el.innerHTML = html;
   document.getElementById("download-fixed").disabled = false;
+}
+
+function renderStay(data) {
+  const el = document.getElementById("stay");
+  el.classList.remove("muted");
+  let html =
+    `<div>记录时长：<b>${fmtDuration(data.record_duration_s)}</b>` +
+    `（按有效相邻采样时差求和${data.gap_count
+      ? `，已排除 ${data.gap_count} 次中断、共 ${fmtDuration(data.gap_duration_s)}`
+      : ""}）</div>` +
+    `<div>停留时长：<b>${fmtDuration(data.stay_duration_s)}</b>` +
+    `（${data.stay_count} 次停留）</div>` +
+    `<div>移动时长：<b>${fmtDuration(data.moving_duration_s)}</b>` +
+    `（记录时长 − 停留时长）</div>`;
+  if (data.stays.length) {
+    const rows = data.stays.map((s, i) =>
+      "<tr>" +
+      `<td>${i + 1}</td>` +
+      `<td>分段${s.seg_index} · (${s.lat.toFixed(5)}, ${s.lon.toFixed(5)})</td>` +
+      `<td>${fmtDateTime(s.start_time)}<br>～ ${fmtDateTime(s.end_time)}</td>` +
+      `<td>${fmtDuration(s.duration_s)}</td>` +
+      "</tr>"
+    ).join("");
+    html +=
+      '<table class="pace-table stay-table"><thead><tr>' +
+      "<th>序</th><th>位置（锚点）</th><th>起止时间</th><th>时长</th>" +
+      `</tr></thead><tbody>${rows}</tbody></table>`;
+  } else {
+    html += "<div>未识别到停留（连续点均在 30 米内且首末相隔至少 3 分钟）</div>";
+  }
+  el.innerHTML = html;
 }
 
 function renderCircleList() {

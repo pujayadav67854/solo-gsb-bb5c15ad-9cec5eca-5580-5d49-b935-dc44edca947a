@@ -9,7 +9,7 @@
 <body>
   <header>
     <h1>徒步轨迹分享</h1>
-    <p>上传含时间的 GPX → 自动统计分段配速、海拔剖面并检测单点漂移跳点 → 在预览图上点击敏感地点并设定遮蔽半径 → 导出按遮蔽圆裁切、互不连接的 GPX 分段</p>
+    <p>上传含时间的 GPX → 自动统计分段配速、海拔剖面、单点漂移跳点与停留 → 在预览图上点击敏感地点并设定遮蔽半径 → 导出按遮蔽圆裁切、互不连接的 GPX 分段</p>
   </header>
   <main>
     <section class="panel">
@@ -38,6 +38,7 @@
         <span><i class="sw hidden"></i>被隐藏段</span>
         <span><i class="sw circle"></i>遮蔽圆</span>
         <span><i class="sw drift"></i>漂移跳点</span>
+        <span><i class="sw stay"></i>停留点</span>
       </div>
     </section>
   </main>
@@ -65,6 +66,15 @@
     <p class="hint">判定：同一 trkseg 内某中间点进出两段速度均 &gt; 12 m/s、绕过该点的首尾速度 ≤ 12 m/s、
       且该点到首尾线段的水平距离 &gt; 40 m；逐轮只删最早命中的一个跳点并重算，保留每段首尾点；
       命中点以橙色标在预览图上。遮蔽与配速统计仍使用原始轨迹，不受修复影响</p>
+  </section>
+
+  <section class="stay">
+    <h2>7. 停留识别</h2>
+    <div id="stay" class="info muted">上传 GPX 后自动识别停留</div>
+    <p class="hint">按原始 trkseg 时间顺序，以候选首点为锚向后扩展：连续点与锚点均在 30 米内、
+      且首末至少相隔 3 分钟才记为一次停留；越界即结算，各停留区间互不重叠。
+      相邻采样间隔超过 10 分钟视为记录中断，空档不计入时长；记录时长按有效相邻采样时差求和，
+      移动时长 = 记录时长 − 停留时长。停留点以紫色标在预览图上</p>
   </section>
 
   <div id="message" hidden></div>

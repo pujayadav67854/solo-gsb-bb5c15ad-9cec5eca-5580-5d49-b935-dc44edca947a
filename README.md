@@ -1,8 +1,9 @@
 # 徒步轨迹分享 · 敏感地点遮蔽
 
-上传含时间的 GPX 轨迹，自动统计**分段配速**、**海拔剖面 / 累计爬升**并检测**单点漂移跳点**
-（可下载修复后的 GPX）；在**无底图**预览图上点击敏感地点（如家、公司）
-并设定遮蔽半径，系统按**轨迹线段与遮蔽圆的交点**精确裁切，导出为**互不连接的 GPX `trkseg`** 后再分享。
+上传含时间的 GPX 轨迹，自动统计**分段配速**、**海拔剖面 / 累计爬升**、检测**单点漂移跳点**
+（可下载修复后的 GPX）并识别**停留**与全程**停留 / 移动时长**；在**无底图**预览图上点击敏感地点
+（如家、公司）并设定遮蔽半径，系统按**轨迹线段与遮蔽圆的交点**精确裁切，导出为**互不连接的
+GPX `trkseg`** 后再分享。
 
 - 后端：Python / FastAPI（几何裁切与配速统计在服务端完成）
 - 前端：原生 JavaScript + Canvas（无任何框架、无地图底图依赖）
@@ -26,6 +27,7 @@ docker compose up --build
 | 对外端口 | `docker-compose.yml` 中 `ports` | 默认 `"8000:8000"`，改左侧即可（如 `"8080:8000"`） |
 | 上传大小限制 | `app/main.py` 中 `MAX_UPLOAD_BYTES` | 默认 50 MB |
 | 每段里程 | 页面"分段配速"输入框，或 `/api/pace` 的 `split_km` | 0.1～10 公里，默认 1 公里 |
+| 停留口径 | `app/stay.py` 中常量 | 半径 30 米（`STAY_RADIUS_M`）、最短 3 分钟（`MIN_STAY_SECONDS`）、中断 10 分钟（`MAX_GAP_SECONDS`） |
 | 数据存储 | 内存 | 演示用途：轨迹仅存内存，容器重启即清空，无需数据库 |
 
 无其他必需配置（不需要 API Key、不依赖外部服务）。
@@ -41,11 +43,14 @@ docker compose up --build
 4. **查看单点漂移修复**：页面自动检测**跳点**（GPS 单点漂移），命中点以橙色"漂"标记在
    预览图上，并列出命中明细与**修复前 / 修复后里程**；点击"下载修复后的 GPX"得到删除
    跳点后的轨迹。遮蔽裁切、配速与海拔统计始终使用**原始轨迹**，不受修复影响。
-5. **设置遮蔽**：在右侧预览图上**点击**敏感地点即添加遮蔽圆，半径在左侧面板设定
+5. **查看停留识别**：页面自动列出每次停留的**位置、起止时间、时长**，以及全程
+   **记录时长 / 停留时长 / 移动时长**；停留点以紫色"停"（含 30 米范围环）标记在预览图上。
+   相邻采样时间未递增时显示明确错误提示。
+6. **设置遮蔽**：在右侧预览图上**点击**敏感地点即添加遮蔽圆，半径在左侧面板设定
    （添加前设定新圆半径；已有圆可在列表中单独修改或删除）。
-6. **查看裁切结果**：页面实时显示 **隐藏段数**、**裁切前距离**、**裁切后距离** 与可见分段数；
+7. **查看裁切结果**：页面实时显示 **隐藏段数**、**裁切前距离**、**裁切后距离** 与可见分段数；
    蓝色为可见轨迹，红色虚线为被隐藏段。
-7. **下载**：点击"下载遮蔽后的 GPX"，得到一条 `trk` 下多个互不连接的 `trkseg`。
+8. **下载**：点击"下载遮蔽后的 GPX"，得到一条 `trk` 下多个互不连接的 `trkseg`。
 
 ## 分段配速规则（实现要点）
 
@@ -90,6 +95,24 @@ docker compose up --build
 - **里程统计**：修复前 / 修复后里程均按 haversine 球面距离逐段累计，修复后里程
   为删除全部命中跳点后的剩余轨迹里程。
 
+## 停留识别规则（实现要点）
+
+- **锚点扩展**：按原始 `trkseg` 的时间顺序扫描，以候选首点为**锚点**向后扩展；
+  只要后续点与锚点的 haversine 距离不超过 **30 米**就视为连续，候选区间**首末时间至少
+  相隔 3 分钟**才记为一次停留；停留位置取锚点坐标。
+- **越界结算**：后续点与锚点距离超过 30 米即结束当前候选区间；不足 3 分钟的候选不记为
+  停留，候选首点向后滑动一个点继续扩展；命中停留后从区间末点之后继续扫描，因此
+  **各停留区间互不重叠**。
+- **记录中断**：同一 `trkseg` 内相邻采样间隔**超过 10 分钟**视为记录中断，中断处结束候选
+  区间，**空档不计入记录时长**，也不会把中断前后拼成一次停留（间隔恰好 10 分钟仍属有效）。
+- **不跨分段**：停留不跨原始 `trkseg` 边界，段与段之间的空档同样不计入记录时长。
+- **时间校验**：相邻轨迹点时间相同或倒退时接口返回 `400`，给出"第 N 个 trkseg 中
+  第 i→i+1 个轨迹点的时间未递增"的明确提示。
+- **时长口径**：
+  - **记录时长** = 各 `trkseg` 内有效相邻采样时差（时差 > 0 且 ≤ 10 分钟）之和；
+  - **停留时长** = 各次停留首末时间之差之和（停留区间内部不含中断空档）；
+  - **移动时长** = 记录时长 − 停留时长。
+
 ## 裁切规则（实现要点）
 
 - **穿越识别**：对每个原始采样线段与每个遮蔽圆求解析交点（局部切平面投影中解二次方程），
@@ -106,14 +129,15 @@ docker compose up --build
 
 ```
 app/
-  main.py          # FastAPI 路由：/api/upload、/api/mask、/api/export、/api/pace、/api/elevation、/api/drift、/api/drift/export、静态页面
+  main.py          # FastAPI 路由：/api/upload、/api/mask、/api/export、/api/pace、/api/elevation、/api/drift、/api/drift/export、/api/stay、静态页面
   geo.py           # 几何核心：haversine、点到线段距离、线段-圆求交、按可见性裁切
   pace.py          # 分段配速：按固定里程切段、边界时间插值
   elevation.py     # 海拔剖面：20 米重采样、三点中位数、5 米反向确认峰谷、累计爬升/下降
   drift.py         # 单点漂移：跳点判定（速度 + 偏移阈值）、逐轮删除最早命中点
+  stay.py          # 停留识别：锚点扩展（30 米/3 分钟）、10 分钟中断、记录/停留/移动时长
   gpxutil.py       # GPX 1.1 解析（强制要求 time）与多 trkseg 导出
   static/          # 原生 JS 前端（index.html / app.js / style.css）
-tests/             # 单元测试：test_geo.py（裁切 9 项）、test_pace.py（配速 8 项）、test_elevation.py（海拔 13 项）、test_drift.py（漂移 12 项）
+tests/             # 单元测试：test_geo.py（裁切 9 项）、test_pace.py（配速 8 项）、test_elevation.py（海拔 13 项）、test_drift.py（漂移 12 项）、test_stay.py（停留 18 项）
 examples/sample.gpx# 示例轨迹（两个 trkseg，含时间与海拔）
 Dockerfile         # python:3.12-slim，构建期安装依赖，启动即运行
 docker-compose.yml # 单服务，映射 8000 端口
@@ -131,6 +155,7 @@ python3 tests/test_geo.py        # 裁切逻辑
 python3 tests/test_pace.py       # 分段配速
 python3 tests/test_elevation.py  # 海拔剖面与累计爬升
 python3 tests/test_drift.py      # 单点漂移检测与修复
+python3 tests/test_stay.py       # 停留识别与全程时长统计
 # 或：python3 -m pytest tests/
 ```
 
@@ -145,6 +170,7 @@ python3 tests/test_drift.py      # 单点漂移检测与修复
 | `POST` | `/api/elevation` | `{track_id}` → 海拔剖面与总爬升/总下降（见下） |
 | `POST` | `/api/drift` | `{track_id}` → 单点漂移检测结果与修复前后里程（见下） |
 | `POST` | `/api/drift/export` | `{track_id}` → 删除跳点后的 GPX 文件下载 |
+| `POST` | `/api/stay` | `{track_id}` → 停留列表与全程记录/停留/移动时长（见下） |
 
 ### `POST /api/pace` 分段配速
 
@@ -198,6 +224,27 @@ curl -X POST http://localhost:8000/api/elevation \
 
 ```bash
 curl -X POST http://localhost:8000/api/drift \
+  -H "Content-Type: application/json" \
+  -d '{"track_id": "<上传返回的 track_id>"}'
+```
+
+### `POST /api/stay` 停留识别
+
+- **参数**：`track_id`（必填，上传返回值）；基于已上传的原始轨迹计算，不上传坐标参数。
+- **返回**：`stay_count`（停留次数）、`stays`（每次停留：原始 `seg_index`、
+  `start_index` / `end_index`、`point_count`、锚点经纬度 `lat` / `lon`、
+  `start_time` / `end_time`（ISO 时间）、`duration_s`），以及全程
+  `record_duration_s`（记录时长）、`stay_duration_s`（停留时长）、
+  `moving_duration_s`（移动时长 = 记录 − 停留）、`gap_count` / `gap_duration_s`
+  （超过 10 分钟的中断次数与被排除的空档总时长），另附口径常量 `thresholds`
+  （`radius_m=30`、`min_stay_s=180`、`max_gap_s=600`）。
+- **错误**：相邻点时间未递增（零时差或倒序）时返回 `400` 与中文提示；
+  `track_id` 不存在返回 `404`。
+
+示例：
+
+```bash
+curl -X POST http://localhost:8000/api/stay \
   -H "Content-Type: application/json" \
   -d '{"track_id": "<上传返回的 track_id>"}'
 ```

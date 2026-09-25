@@ -15,6 +15,7 @@ from .elevation import RESAMPLE_STEP_M, REVERSAL_THRESHOLD_M, elevation_profile
 from .geo import MaskCircle, haversine_m, mask_track
 from .gpxutil import build_gpx, parse_gpx
 from .pace import DEFAULT_SPLIT_KM, MAX_SPLIT_KM, MIN_SPLIT_KM, pace_splits
+from .stay import MAX_GAP_SECONDS, MIN_STAY_SECONDS, STAY_RADIUS_M, detect_stays
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
@@ -48,6 +49,10 @@ class ElevationRequest(BaseModel):
 
 
 class DriftRequest(BaseModel):
+    track_id: str
+
+
+class StayRequest(BaseModel):
     track_id: str
 
 
@@ -262,6 +267,44 @@ def drift_export(req: DriftRequest):
         media_type="application/gpx+xml",
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
     )
+
+
+def _stay_dict(s):
+    return {
+        "seg_index": s.seg_index,
+        "start_index": s.start_index,
+        "end_index": s.end_index,
+        "point_count": s.point_count,
+        "lat": s.lat,
+        "lon": s.lon,
+        "start_time": s.start_time.isoformat(),
+        "end_time": s.end_time.isoformat(),
+        "duration_s": s.duration_s,
+    }
+
+
+@app.post("/api/stay")
+def stay(req: StayRequest):
+    """停留识别：基于已上传的 track_id 计算停留点与全程记录/停留/移动时长。"""
+    track = _get_track(req.track_id)
+    try:
+        result = detect_stays(track["segments"])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "stay_count": len(result.stays),
+        "stays": [_stay_dict(s) for s in result.stays],
+        "record_duration_s": result.record_duration_s,
+        "stay_duration_s": result.stay_duration_s,
+        "moving_duration_s": result.moving_duration_s,
+        "gap_count": result.gap_count,
+        "gap_duration_s": result.gap_duration_s,
+        "thresholds": {
+            "radius_m": STAY_RADIUS_M,
+            "min_stay_s": MIN_STAY_SECONDS,
+            "max_gap_s": MAX_GAP_SECONDS,
+        },
+    }
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
