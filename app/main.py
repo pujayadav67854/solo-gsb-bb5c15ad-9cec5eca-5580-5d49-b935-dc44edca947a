@@ -1,4 +1,4 @@
-"""FastAPI 入口：上传 GPX、遮蔽计算、导出、分段配速、海拔分析、静态页面。"""
+"""FastAPI 入口：上传 GPX、遮蔽计算、导出、分段配速、海拔分析、漂移修复、停留识别、静态页面。"""
 from __future__ import annotations
 
 import uuid
@@ -15,6 +15,7 @@ from .elevation import RESAMPLE_STEP_M, REVERSAL_THRESHOLD_M, elevation_profile
 from .geo import MaskCircle, haversine_m, mask_track
 from .gpxutil import build_gpx, parse_gpx
 from .pace import DEFAULT_SPLIT_KM, MAX_SPLIT_KM, MIN_SPLIT_KM, pace_splits
+from .stay import MAX_GAP_S, MIN_STAY_S, STAY_RADIUS_M, detect_stays
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
@@ -48,6 +49,10 @@ class ElevationRequest(BaseModel):
 
 
 class DriftRequest(BaseModel):
+    track_id: str
+
+
+class StayRequest(BaseModel):
     track_id: str
 
 
@@ -262,6 +267,41 @@ def drift_export(req: DriftRequest):
         media_type="application/gpx+xml",
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
     )
+
+
+def _stay_dict(s):
+    return {
+        "seg_index": s.seg_index,
+        "start_index": s.start_index,
+        "end_index": s.end_index,
+        "lat": s.lat,
+        "lon": s.lon,
+        "start_time": s.start_time.isoformat(),
+        "end_time": s.end_time.isoformat(),
+        "duration_s": s.duration_s,
+        "points": s.points,
+    }
+
+
+@app.post("/api/stays")
+def stays(req: StayRequest):
+    """停留识别与记录/停留/移动时长：基于上传时保存的原始轨迹计算，与遮蔽裁切无关。"""
+    track = _get_track(req.track_id)
+    try:
+        result = detect_stays(track["segments"])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "stays": [_stay_dict(s) for s in result.stays],
+        "stay_total_s": result.stay_total_s,
+        "recording_s": result.recording_s,
+        "moving_s": result.moving_s,
+        "thresholds": {
+            "radius_m": STAY_RADIUS_M,
+            "min_stay_s": MIN_STAY_S,
+            "max_gap_s": MAX_GAP_S,
+        },
+    }
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

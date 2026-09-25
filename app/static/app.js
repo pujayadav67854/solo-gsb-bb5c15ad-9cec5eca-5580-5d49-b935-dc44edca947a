@@ -11,6 +11,7 @@ const state = {
   masked: null,   // /api/mask 返回结果
   elevation: null, // /api/elevation 返回结果
   drift: null,    // /api/drift 返回结果
+  stays: null,    // /api/stays 返回结果
   transform: null,
 };
 
@@ -137,6 +138,11 @@ function draw() {
   if (state.drift) {
     for (const h of state.drift.hits) drawMarker(h, "#fb8c00", "漂", dpr);
   }
+
+  // 停留点（紫色）
+  if (state.stays) {
+    for (const s of state.stays.stays) drawMarker(s, "#8e24aa", "停", dpr);
+  }
 }
 
 function drawMarker(p, color, label, dpr) {
@@ -192,6 +198,7 @@ async function uploadFile(file) {
   state.masked = null;
   state.elevation = null;
   state.drift = null;
+  state.stays = null;
   document.getElementById("download-fixed").disabled = true;
   computeTransform();
   renderTrackInfo(data.stats);
@@ -200,6 +207,7 @@ async function uploadFile(file) {
   await refreshPace();
   await refreshElevation();
   await refreshDrift();
+  await refreshStays();
 }
 
 let paceTimer = null;
@@ -310,6 +318,27 @@ async function downloadFixedGpx() {
   } catch (err) {
     showMessage(err.message);
   }
+}
+
+async function refreshStays() {
+  if (!state.trackId) return;
+  const el = document.getElementById("stay");
+  try {
+    const res = await fetch("/api/stays", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ track_id: state.trackId }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(errDetail(data, "停留识别失败"));
+    state.stays = data;
+    renderStays(data);
+  } catch (err) {
+    state.stays = null;
+    el.classList.remove("muted");
+    el.innerHTML = `<div class="pace-error">无法识别停留：${escapeHtml(err.message)}</div>`;
+  }
+  draw();
 }
 
 function saveBlob(blob, filename) {
@@ -546,6 +575,32 @@ function renderDrift(data) {
   }
   el.innerHTML = html;
   document.getElementById("download-fixed").disabled = false;
+}
+
+function renderStays(data) {
+  const el = document.getElementById("stay");
+  el.classList.remove("muted");
+  let html =
+    `<div>全程记录时长：<b>${fmtDuration(data.recording_s)}</b>，` +
+    `其中停留 <b>${fmtDuration(data.stay_total_s)}</b>，` +
+    `移动 <b>${fmtDuration(data.moving_s)}</b></div>` +
+    `<div>识别到停留：<b>${data.stays.length}</b> 次</div>`;
+  if (data.stays.length) {
+    const rows = data.stays.map((s, i) =>
+      "<tr>" +
+      `<td>${i + 1}</td>` +
+      `<td>(${s.lat.toFixed(5)}, ${s.lon.toFixed(5)})</td>` +
+      `<td>${fmtTime(s.start_time)} ~ ${fmtTime(s.end_time)}</td>` +
+      `<td>${fmtDuration(s.duration_s)}</td>` +
+      `<td>${s.points}</td>` +
+      "</tr>"
+    ).join("");
+    html +=
+      '<table class="pace-table stay-table"><thead><tr>' +
+      "<th>序</th><th>位置</th><th>起止时间</th><th>停留时长</th><th>点数</th>" +
+      `</tr></thead><tbody>${rows}</tbody></table>`;
+  }
+  el.innerHTML = html;
 }
 
 function renderCircleList() {
